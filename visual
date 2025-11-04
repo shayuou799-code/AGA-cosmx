@@ -1,0 +1,11 @@
+### all-imagedimplot
+print(
+  ImageDimPlot(
+    sce,
+    fov = "HF", # <-- 指定您的图像槽名称
+    group.by = "predicted.id_clean", # <-- 告诉它按哪一列上色
+    cols = "glasbey", # <-- 一种适合多种颜色的调色板
+    axes = TRUE      # <-- 显示坐标轴
+  ) +
+    ggtitle("All Cell Types (All FOVs Overlaid)")
+)
