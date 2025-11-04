@@ -4,10 +4,69 @@
  }
  
   
+library(Seurat)
+library(dplyr)
+  library(future)
+  workers_to_use <- max(1, future::availableCores() - 2)
+  plan(multisession, workers = 5)
+  cat(paste("已设置并行计划：使用", workers_to_use, "个核心。\n"))
+    # (设置为 10 GiB)
+  options(future.globals.maxSize = 500 * 1024^3)
+  cat("已将 future.globals.maxSize 限制提高到 10 GiB。\n")
   
-  # --- 第3步：转移细胞类型标签 (TransferData) ---
+  # --- 第2步：寻找转移锚点 (FindTransferAnchors) ---
+  
+  # 这一步会在两个数据集中寻找“相似”的细胞（锚点）
+  # 这可能需要几分钟时间
+  transfer_anchors <- FindTransferAnchors(
+    reference = AGA,                   # 您的单细胞参考
+    query = sce,                       # 您的空转查询
+    normalization.method = "LogNormalize",
+    reference.reduction = "pca",       # 告诉Seurat AGA 使用 "pca" 降维
+    dims = 1:20                        # 使用的PC维度 (请确保与您处理AGA时一致)
+  )
   
   # 这一步会使用锚点来预测 sce 中每个细胞的身份
   predictions <- TransferData(
     anchorset = transfer_anchors,
     
+    # (!! 关键 !!) 已为您替换为正确的列名
+    refdata = AGA$level2_identity,
+    
+    dims = 1:20
+  )
+  
+  # 3b. 将预测结果 (一个数据框) 添加到 sce 对象的 meta.data 中
+  sce <- AddMetaData(sce, metadata = predictions)
+  
+  # 预测结果数据框中最重要的两列是:
+  # 1. "predicted.id" (预测的细胞类型)
+  # 2. "prediction.score.max" (该预测的置信度分数, 0到1)
+  
+  
+  # --- 第4步：(最终) 可视化和验证结果 ---
+  
+  # 4a. 查看 meta.data，确认 "predicted.id" 已成功添加
+  print(head(sce@meta.data))
+  
+  # 4b. 在 UMAP 上查看新的细胞类型注释
+  #     (sce 对象的 UMAP 是在上一步中运行的)
+  print(
+    DimPlot(sce, group.by = "predicted.id", label = TRUE) + 
+      ggtitle("Annotated Cell Types (UMAP)") +
+      NoLegend()
+  )
+  
+  # 4c. (最重要) 在空间（空转）图上查看注释
+  #     这会向您展示不同细胞类型在组织上的空间分布
+  print(
+    SpatialDimPlot(sce, group.by = "predicted.id", label = TRUE, label.size = 3) +
+      ggtitle("Annotated Cell Types (Spatial)")
+  )
+  
+  # 4d. (可选) 查看预测的置信度分数
+  #     分数低的区域 (颜色暗) 代表该细胞的注释不确定
+  print(
+    SpatialFeaturePlot(sce, features = "prediction.score.max") +
+      ggtitle("Annotation Confidence Score")
+  )
