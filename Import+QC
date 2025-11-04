@@ -1,0 +1,54 @@
+# Import
+library(dplyr) 
+data_dir <- "D:/sc-AGA/cossc/hair-follicle/data/"  
+cos <- LoadNanostring(
+   data.dir         = data_dir,
+   fov              = "HF",
+   assay            = "Nanostring"
+)
+cell_barcodes <- colnames(cos)
+fov_strings <- sub(".*_", "", cell_barcodes)
+fov_numbers <- as.numeric(fov_strings)
+cos <- AddMetaData(object = cos, 
+                   metadata = fov_numbers, 
+                   col.name = "fov_number")
+region_detail <- dplyr::case_when(
+  fov_numbers >= 1 & fov_numbers <= 12   ~ "V1",
+  fov_numbers >= 13 & fov_numbers <= 19  ~ "O1",
+  fov_numbers >= 20 & fov_numbers <= 28  ~ "V2",
+  fov_numbers >= 29 & fov_numbers <= 38  ~ "O2",
+  fov_numbers >= 39 & fov_numbers <= 51  ~ "V3",
+  fov_numbers >= 52 & fov_numbers <= 62  ~ "O3",
+  fov_numbers >= 63 & fov_numbers <= 64 | (fov_numbers >= 365 & fov_numbers <= 367) ~ "V4",
+  fov_numbers >= 65 & fov_numbers <= 72  ~ "O4",
+  # NA_character_ Not Available
+  TRUE ~ NA_character_ 
+)
+cos <- AddMetaData(object = cos, 
+                   metadata = region_detail, 
+                   col.name = "orig.ident")
+region_vo <- dplyr::case_when(
+  startsWith(region_detail, "V") ~ "Vertex",
+  startsWith(region_detail, "O") ~ "Occipital",
+  TRUE ~ NA_character_
+cos <- AddMetaData(object = cos, 
+                   metadata = region_vo, 
+                   col.name = "Type")
+cos$CellID <- colnames(cos)
+
+##QC
+n_before <- ncol(cos)
+cat(paste("Cells before filtering:", n_before, "\n"))
+filter_nFeature <- 20       
+filter_nCount <- 30        
+cos_filtered <- subset(cos, 
+                       subset = 
+                         nFeature_Nanostring >= filter_nFeature & 
+                         nCount_Nanostring > filter_nCount
+)
+n_after <- ncol(cos_filtered)
+cat(paste("Cells after filtering:", n_after, "\n"))
+cat(paste("Cells removed:", n_before - n_after, "\n"))
+cat(paste("% Cells Kept:", round(100 * n_after / n_before, 2), "%\n"))
+sce <- cos_filtered
+saveRDS(sce, file.path("outs", "sce-.rds"))
