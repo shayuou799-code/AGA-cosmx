@@ -1,0 +1,120 @@
+
+library(Seurat)
+library(dplyr)
+
+# 2. (!! 关键 !!) 创建您的 Marker 基因列表
+#    (这是从您的 image_646c09.png 中完整转录过来的)
+marker_list <- list(
+  HF_KCs = c("DSP", "SFN", "DSC3", "DSG3", "PKP1"),
+  Fibroblasts = c("DCN", "MFAP4", "VCAN", "COL3A1", "COL6A2", "MMP2"),
+  Endothelials = c("FLT1", "PLVAP", "CD34"),
+  Myeloid_cells = c("LYZ", "FCER1G", "CD74"),
+  T_cells = c("IL7R", "PTPRC", "CD34", "CD3G", "TRBC"),
+  Sweat_gland = c("DCD", "PIP", "MUCL1"),
+  Melanocytes = c("PMEL", "TYRP1", "MLANA", "DCT"),
+  Mast_cells = c("TPSB2", "TPSAB1", "CPA3"),
+  SMC = c("RGS5", "ACTA2")
+)
+
+# 3. (!! 关键 !!) 循环运行 AddModuleScore
+#    这会在 sce@meta.data 中添加新列 (例如 "HF_KCs1", "Fibroblasts2" 等)
+#    (Seurat 会在列名后自动加一个数字)
+for (type_name in names(marker_list)) {
+  sce <- AddModuleScore(
+    object = sce,
+    features = marker_list[type_name], # 必须是 list 格式
+    name = type_name,
+    ctrl = 5, # 使用 5 个对照基因
+    search = FALSE # 仅使用提供的 marker
+  )
+}
+
+# 4. (!! 关键 !!) "Winner-Takes-All"：分配最终的“大群”标签
+#    我们将找出哪个模块得分在每个细胞中是最高的
+
+# 4a. 获取所有新添加的得分列的列名
+#    (我们假设 Seurat 在每个名字后都加了 "1")
+score_columns <- paste0(names(marker_list), "1") 
+
+# 4b. (可选) 检查一下列名是否正确
+# print(head(sce@meta.data)) # 检查一下，确保列名是 HF_KCs1, Fibroblasts1...
+
+# 4c. 从 meta.data 中提取这些得分
+scores_df <- sce@meta.data[, score_columns]
+
+# 4d. 找出每一行 (每个细胞) 得分最高的列的 "名字"
+broad_labels <- apply(scores_df, 1, function(cell_scores) {
+  
+  # 找出最高分对应的列名 (例如 "T_cells1")
+  top_column_name <- names(which.max(cell_scores))
+  
+  # 去掉末尾的 "1"
+  broad_type <- sub("1$", "", top_column_name)
+  return(broad_type)
+})
+
+# 4e. (!! 关键 !!) 将这些“大群”标签添加回 sce 对象
+sce$Broad_Type <- broad_labels
+sce$Broad_Type <- factor(sce$Broad_Type) # 转为因子
+
+# --- 5. (验证) 检查一下您的“大群”注释 ---
+cat("--- “大群”注释 (Broad_Type) 统计 --- \n")
+print(table(sce$Broad_Type))
+
+# --- 6. (验证) 可视化这 9 个大群 ---
+#    我们将使用我们之前“唯一能用”的 ggplot2 + facet_wrap 方案
+#    这会向您展示这 9 个大群的空间分布
+#    (这个代码假设您仍然有 plot_df_full, 
+#     如果没有, 它会基于 sce 重新创建)
+
+cat("正在准备 'Broad_Type' 的空间绘图数据...\n")
+
+# 6a. 准备绘图数据 (合并元数据和坐标)
+meta_df_broad <- sce@meta.data[, c("CellID", "Broad_Type", "fov_number")]
+image_slot_name <- names(sce@images)[1]
+coords_matrix <- sce@images[[image_slot_name]]@boundaries$centroids@coords
+coords_df <- as.data.frame(coords_matrix)
+colnames(coords_df) <- c("x", "y")
+coords_df$CellID_img <- sce@images[[image_slot_name]]@boundaries$centroids@cells
+plot_df_broad <- merge(meta_df_broad, coords_df, by.x = "CellID", by.y = "CellID_img")
+
+# 6b. 计算标签位置
+label_positions_broad <- plot_df_broad %>%
+  group_by(fov_number, Broad_Type) %>%
+  summarise(
+    x_label = median(x),
+    y_label = median(y),
+    .groups = 'drop'
+  )
+
+# 6c. 绘图 (按 FOV 分面, 10个一组)
+all_fovs <- sort(unique(plot_df_broad$fov_number))
+chunk_size <- 10
+fov_chunks <- split(all_fovs, ceiling(seq_along(all_fovs) / chunk_size))
+
+for (current_fov_chunk in fov_chunks) {
+    current_plot_df <- filter(plot_df_broad, fov_number %in% current_fov_chunk)
+    current_label_pos <- filter(label_positions_broad, fov_number %in% current_fov_chunk)
+    chunk_title <- paste("Broad Types in FOVs:", min(current_fov_chunk), "to", max(current_fov_chunk))
+    
+    p_chunk <- ggplot(current_plot_df, aes(x = x, y = y, color = Broad_Type)) +
+      geom_point(size = 0.5, shape = 16) +
+      ggrepel::geom_text_repel(
+        data = current_label_pos, 
+        aes(x = x_label, y = y_label, label = Broad_Type),
+        color = "black", size = 3.0, max.overlaps = 15,
+        segment.size = 0.2, segment.color = "grey50"
+      ) +
+      facet_wrap(~ fov_number, scales = "free") + 
+      theme_void() +
+      guides(color = guide_legend(title = "Broad Type", override.aes = list(size = 3))) +
+      theme(
+        legend.position = "right",
+        panel.background = element_rect(fill = "white", color = "grey80"),
+        aspect.ratio = 1,
+        plot.title = element_text(hjust = 0.5, face = "bold") 
+      ) +
+      labs(title = chunk_title)
+
+    print(p_chunk)
+}
