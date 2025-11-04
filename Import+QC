@@ -51,4 +51,6 @@ cat(paste("Cells after filtering:", n_after, "\n"))
 cat(paste("Cells removed:", n_before - n_after, "\n"))
 cat(paste("% Cells Kept:", round(100 * n_after / n_before, 2), "%\n"))
 sce <- cos_filtered
-saveRDS(sce, file.path("outs", "sce-.rds"))
+
+dir.create("D:/sc-AGA/cossc/hair-follicle/outputs", showWarnings = FALSE)
+saveRDS(sce, "D:/sc-AGA/cossc/hair-follicle/outputs/sce_v1.rds")
