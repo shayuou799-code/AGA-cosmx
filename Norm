@@ -1,0 +1,13 @@
+ sce <- FindNeighbors(sce, reduction = "pca", dims = 1:30)
+ sce <- FindClusters(sce, resolution = 0.5)
+ sce <- RunUMAP(sce, reduction = "pca", dims = 1:30)
+ }
+ 
+  
+  
+  # --- 第3步：转移细胞类型标签 (TransferData) ---
+  
+  # 这一步会使用锚点来预测 sce 中每个细胞的身份
+  predictions <- TransferData(
+    anchorset = transfer_anchors,
+    
